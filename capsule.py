@@ -97,7 +97,7 @@ def digit_caps(incoming, n_capsules, dim, name="DigitCaps", neuron_axis=-1, caps
 def evaluate_on_test():
     test_scores = []
     test_epochs = mnist.test.epochs_completed
-    while mnist.est.epochs_completed == test_epochs:
+    while mnist.test.epochs_completed == test_epochs:
         images, labels = mnist.test.next_batch(batch_size=32)
         test_scores.append(sess.run(acc, feed_dict={x: images, y: labels}))
     print("Epoch {}, accuracy on test: {}".format(epochs, sum(test_scores) / len(test_scores)))
