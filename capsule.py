@@ -3,6 +3,8 @@ from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 from tensorflow.contrib.keras.python.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.contrib.keras.python.keras.initializers import glorot_uniform
+from lws import LocalWeightSharing2D
+from initializers import ConcatInitializer
 import tqdm
 import argparse
 
@@ -58,7 +60,16 @@ def decoder_network(x, reuse=None):
 
 
 def primary_caps(x, kernel_size, strides, capsules, dim, name="PrimaryCaps"):
-    preactivation = tf.layers.conv2d(x, capsules * dim, kernel_size, strides=strides, activation=tf.identity, name=name)
+    if args.pclayer == "conv":
+        preactivation = tf.layers.conv2d(
+            x, capsules * dim, kernel_size, strides=strides, activation=tf.identity, name=name,
+            kernel_initializer=ConcatInitializer('glorot_uniform', axis=3, splits=capsules)
+        )
+    else:
+        preactivation = LocalWeightSharing2D(
+            capsules * dim, kernel_size, strides=strides, activation=tf.identity, name=name, per_filter=False,
+            kernel_initializer=ConcatInitializer('glorot_uniform', axis=3, splits=3 * capsules)
+        )(x)
     _, w, h, _ = preactivation.shape.as_list()
     out = tf.reshape(preactivation, (-1, w * h * capsules, dim))
     return squash(out)
@@ -77,6 +88,8 @@ def digit_caps(incoming, n_capsules, dim, name="DigitCaps", neuron_axis=-1, caps
         dim_in_capsules = in_shape[neuron_axis]
         W_ij = tf.get_variable("weights", shape=[n_in_capsules, n_capsules * dim, dim_in_capsules],
                                initializer=glorot_uniform())
+        b_ij = tf.get_variable("logits", shape=[1, n_in_capsules, n_capsules], initializer=tf.zeros_initializer(),
+                               trainable=args.logits_trainable)
         u_i = tf.transpose(incoming, (1, 2, 0))
         u_hat = tf.matmul(W_ij, u_i)
         u_hat = tf.reshape(tf.transpose(u_hat, (2, 0, 1)), (-1, n_in_capsules, n_capsules, dim))
@@ -87,17 +100,17 @@ def digit_caps(incoming, n_capsules, dim, name="DigitCaps", neuron_axis=-1, caps
             v_j = squash(s_j)
             return v_j
 
-        def routing_iteration(iter, b_ij):
-            v_j = capsule_out(b_ij)
+        def routing_iteration(iter, logits):
+            v_j = capsule_out(logits)
             a_ij = tf.reduce_sum(tf.expand_dims(v_j, axis=1) * u_hat, axis=3)
-            b_ij = tf.reshape(b_ij + a_ij, (-1, n_in_capsules, n_capsules))
-            return [iter + 1, b_ij]
+            logits = tf.reshape(logits + a_ij, (-1, n_in_capsules, n_capsules))
+            return [iter + 1, logits]
 
         i = tf.constant(0)
         routing_result = tf.while_loop(
-            lambda i, b_ij: tf.less(i, routing_iters),
+            lambda i, logits: tf.less(i, routing_iters),
             routing_iteration,
-            [i, tf.zeros(tf.stack([tf.shape(incoming)[0], n_in_capsules, n_capsules]))]
+            [i, tf.tile(b_ij, tf.stack([tf.shape(incoming)[0], 1, 1]))]  # tf.zeros(tf.stack([tf.shape(incoming)[0], n_in_capsules, n_capsules]))]
         )
         v_j = capsule_out(routing_result[1])
 
@@ -110,7 +123,10 @@ def evaluate_on_test(epoch):
     while mnist.test.epochs_completed == test_epochs:
         images, labels = mnist.test.next_batch(batch_size=args.batch_size)
         test_scores.append(sess.run(acc, feed_dict={x: images, y: labels}))
-    print("Epoch {}, accuracy on test: {:.3f}".format(epoch, sum(test_scores) / len(test_scores)))
+    mean_accuracy = np.mean(test_scores)
+    with open(args.logs, 'a') as f:
+        f.write("{},{}\n".format(epoch, mean_accuracy))
+    print("Epoch {}, accuracy on test: {:.3f}".format(epoch, mean_accuracy))
 
 
 if __name__ == "__main__":
@@ -120,7 +136,16 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--decoder_lambda", type=float, default=0.0005)
     parser.add_argument("--shift", type=float, default=2/28)
+    parser.add_argument("--pclayer", default="conv", choices=['conv', 'lws'])
+    parser.add_argument("--logs", default="logs.csv")
+    parser.add_argument("--epochs", default=50)
+    parser.add_argument("--logits_trainable", default=False, action="store_true", dest="logits_trainable")
+    parser.add_argument("--no_pbar", action="store_false", dest="pbar")
+    parser.set_defaults(pbar=True)
     args = parser.parse_args()
+
+    with open(args.logs, 'w') as f:
+        f.write("epoch,accuracy\n")
 
     mnist = input_data.read_data_sets('MNIST_data', validation_size=0, reshape=False, one_hot=False)
     steps_per_epoch = np.ceil(mnist.train.num_examples / args.batch_size)
@@ -135,13 +160,14 @@ if __name__ == "__main__":
         cval=0.
     ).flow(mnist.train.images, mnist.train.labels, batch_size=args.batch_size)
 
-    for epoch in range(10):
-        pbar = tqdm.tqdm(range(int(steps_per_epoch)))
+    for epoch in range(args.epochs):
+        pbar = tqdm.tqdm(range(int(steps_per_epoch))) if args.pbar else range(int(steps_per_epoch))
         total_score = 0
         for s in pbar:
             images, labels = train_generator.next()
             _, score = sess.run([train_op, acc], feed_dict={x: images, y: labels})
             total_score += score
-            pbar.set_description("Epoch ({:02d}/10) | Train accuracy: {:.3f}".format(epoch, total_score / (s + 1)))
+            if args.pbar:
+                pbar.set_description("Epoch ({:02d}/10) | Train accuracy: {:.3f}".format(epoch, total_score / (s + 1)))
         evaluate_on_test(epoch)
 
