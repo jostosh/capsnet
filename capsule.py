@@ -141,13 +141,14 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", default=50)
     parser.add_argument("--logits_trainable", default=False, action="store_true", dest="logits_trainable")
     parser.add_argument("--no_pbar", action="store_false", dest="pbar")
+    parser.add_argument("--datadir", default="MNIST_data")
     parser.set_defaults(pbar=True)
     args = parser.parse_args()
 
     with open(args.logs, 'w') as f:
         f.write("epoch,accuracy\n")
 
-    mnist = input_data.read_data_sets('MNIST_data', validation_size=0, reshape=False, one_hot=False)
+    mnist = input_data.read_data_sets(args.datadir, validation_size=0, reshape=False, one_hot=False)
     steps_per_epoch = np.ceil(mnist.train.num_examples / args.batch_size)
     x, y, train_op, acc = build_caps_net(steps_per_epoch)
     sess = tf.Session()
