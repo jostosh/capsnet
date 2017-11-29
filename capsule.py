@@ -12,8 +12,7 @@ import argparse
 def build_caps_net(steps_per_epoch):
     x = tf.placeholder(tf.float32, [None, 28, 28, 1])
     labels = tf.placeholder(tf.int64, [None])
-    images = tf.reshape(x, (-1, 28, 28, 1))
-    conv1_out = tf.layers.conv2d(images, 256, 9, activation=tf.nn.relu)
+    conv1_out = tf.layers.conv2d(x, 256, 9, activation=tf.nn.relu)
     pc = primary_caps(conv1_out, kernel_size=9, strides=(2, 2), capsules=32, dim=8)
     v_j = digit_caps(pc, n_capsules=10, dim=16)
     digit_norms = tf.norm(v_j, axis=-1)
@@ -161,6 +160,7 @@ if __name__ == "__main__":
         cval=0.
     ).flow(mnist.train.images, mnist.train.labels, batch_size=args.batch_size)
 
+    print("Beginning training")
     for epoch in range(args.epochs):
         pbar = tqdm.tqdm(range(int(steps_per_epoch))) if args.pbar else range(int(steps_per_epoch))
         total_score = 0

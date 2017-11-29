@@ -14,4 +14,4 @@
 module load tensorflow
 source envs/lws/bin/activate
 
-python capsule.py --logs /home/s2098407/capsnet/logs/$1.csv --datadir /data/s2098407/MNIST_data --no_pbar --pclayer $1
+python capsnet/capsule.py --logs /home/s2098407/capsnet/logs/$1.csv --datadir /data/s2098407/MNIST_data --no_pbar --pclayer $1
