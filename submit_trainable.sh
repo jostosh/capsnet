@@ -14,4 +14,4 @@
 module load tensorflow/1.3.1-foss-2016a-Python-3.5.2-CUDA-8.0.61
 source envs/lws/bin/activate
 
-python capsule.py --logs /home/s2098407/capsnet/logs/logits_trainable.csv --logits_trainable --datadir /data/s2098407/MNIST_data --no_pbar
+python capsnet/capsule.py --logs /home/s2098407/capsnet/logs/logits_trainable.csv --logits_trainable --datadir /data/s2098407/MNIST_data --no_pbar
