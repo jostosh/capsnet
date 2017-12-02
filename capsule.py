@@ -33,7 +33,7 @@ def caps_loss(digit_norms, labels, m_plus=0.9, m_minus=0.1, down_weighting=0.5):
     T_c = tf.one_hot(labels, depth=10)
     L_c = T_c * tf.square(tf.maximum(0.0, m_plus - digit_norms)) + \
         down_weighting * (1.0 - T_c) * tf.square(tf.maximum(0.0, digit_norms - m_minus))
-    return tf.reduce_sum(L_c, axis=1)
+    return tf.reduce_sum(L_c)
 
 
 def accuracy(digit_norms, labels):
@@ -41,7 +41,7 @@ def accuracy(digit_norms, labels):
 
 
 def decoder_loss(x, reconstruction):
-    return tf.reduce_sum(tf.square(x - reconstruction))
+    return tf.nn.l2_loss(x - reconstruction)
 
 
 def decoder(v_j, labels):
@@ -109,7 +109,7 @@ def digit_caps(incoming, n_capsules, dim, name="DigitCaps", neuron_axis=-1, caps
         routing_result = tf.while_loop(
             lambda i, logits: tf.less(i, routing_iters),
             routing_iteration,
-            [i, tf.tile(b_ij, tf.stack([tf.shape(incoming)[0], 1, 1]))]  # tf.zeros(tf.stack([tf.shape(incoming)[0], n_in_capsules, n_capsules]))]
+            [i, tf.tile(b_ij, tf.stack([tf.shape(incoming)[0], 1, 1]))]
         )
         v_j = capsule_out(routing_result[1])
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--single", action="store_true", dest="single")
     parser.add_argument("--batch_size", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--decoder_lambda", type=float, default=0.0005)
+    parser.add_argument("--decoder_lambda", type=float, default=0.001)
     parser.add_argument("--shift", type=float, default=2/28)
     parser.add_argument("--pclayer", default="conv", choices=['conv', 'lws'])
     parser.add_argument("--logs", default="logs.csv")
