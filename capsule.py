@@ -3,22 +3,30 @@ from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 from tensorflow.contrib.keras.python.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.contrib.keras.python.keras.initializers import glorot_uniform
-from lws import LocalWeightSharing2D
 from initializers import ConcatInitializer
 import tqdm
 import argparse
 
 
 def build_caps_net(steps_per_epoch):
+    """ Builds the network, returns input placeholder, label placeholder, training Op, accuracy Op """
+    # Define placeholders
     x = tf.placeholder(tf.float32, [None, 28, 28, 1])
     labels = tf.placeholder(tf.int64, [None])
+
+    # Define capsule network
     conv1_out = tf.layers.conv2d(x, 256, 9, activation=tf.nn.relu)
     pc = primary_caps(conv1_out, kernel_size=9, strides=(2, 2), capsules=32, dim=8)
-    v_j = digit_caps(pc, n_capsules=10, dim=16)
+    v_j = digit_caps(pc, n_digit_caps=10, dim_digit_caps=16)
     digit_norms = tf.norm(v_j, axis=-1)
-    reconstruction = decoder(v_j, labels)
-    total_loss = caps_loss(digit_norms, labels) + args.decoder_lambda * decoder_loss(x, reconstruction)
 
+    # Reconstruction from decoder
+    reconstruction = decoder(v_j, labels)
+
+    # Define loss
+    total_loss = caps_loss(digit_norms, labels) + args.decoder_lambda * reconstruction_loss(x, reconstruction)
+
+    # Define all Ops needed for training training and evaluation
     global_step = tf.Variable(0, trainable=False)
     initial_learning_rate = 1e-3
     learning_rate = tf.train.exponential_decay(
@@ -30,6 +38,7 @@ def build_caps_net(steps_per_epoch):
 
 
 def caps_loss(digit_norms, labels, m_plus=0.9, m_minus=0.1, down_weighting=0.5):
+    """ Defines the loss of the network as given in the paper """
     T_c = tf.one_hot(labels, depth=10)
     L_c = T_c * tf.square(tf.maximum(0.0, m_plus - digit_norms)) + \
         down_weighting * (1.0 - T_c) * tf.square(tf.maximum(0.0, digit_norms - m_minus))
@@ -37,21 +46,26 @@ def caps_loss(digit_norms, labels, m_plus=0.9, m_minus=0.1, down_weighting=0.5):
 
 
 def accuracy(digit_norms, labels):
+    """ Defines Op to determine prediction accuracy """
     return tf.reduce_mean(tf.cast(tf.equal(tf.argmax(digit_norms, axis=-1), labels), tf.float32))
 
 
-def decoder_loss(x, reconstruction):
+def reconstruction_loss(x, reconstruction):
+    """ Squared loss for reconstruction. Note that tf.nn.l2_loss(x) computes 1/2 * (x ** 2) """
     return tf.nn.l2_loss(x - reconstruction)
 
 
 def decoder(v_j, labels):
+    """ Define decoder """
+    # Mask for selecting target capsule
     mask = tf.expand_dims(tf.one_hot(labels, depth=10), 2)
-    masked_input = tf.reshape(v_j * mask, (-1, 16 * 10))
-    fc3 = decoder_network(masked_input)
-    return tf.reshape(fc3, (-1, 28, 28, 1))
+    masked_digit_caps = tf.reshape(v_j * mask, (-1, 16 * 10))
+    decoder_out = decoder_network(masked_digit_caps)
+    return tf.reshape(decoder_out, (-1, 28, 28, 1))
 
 
 def decoder_network(x, reuse=None):
+    """ Defines decoder as given in paper """
     fc1 = tf.layers.dense(x, 512, activation=tf.nn.relu, name="DecoderFC1", reuse=reuse)
     fc2 = tf.layers.dense(fc1, 1024, activation=tf.nn.relu, name="DecoderFC2", reuse=reuse)
     fc3 = tf.layers.dense(fc2, 784, activation=tf.nn.sigmoid, name="DecoderOut", reuse=reuse)
@@ -59,58 +73,62 @@ def decoder_network(x, reuse=None):
 
 
 def primary_caps(x, kernel_size, strides, capsules, dim, name="PrimaryCaps"):
-    if args.pclayer == "conv":
-        preactivation = tf.layers.conv2d(
-            x, capsules * dim, kernel_size, strides=strides, activation=tf.identity, name=name,
-            kernel_initializer=ConcatInitializer('glorot_uniform', axis=3, splits=capsules)
-        )
-    else:
-        preactivation = LocalWeightSharing2D(
-            capsules * dim, kernel_size, strides=strides, activation=tf.identity, name=name, per_filter=False,
-            kernel_initializer=ConcatInitializer('glorot_uniform', axis=3, splits=3 * capsules)
-        )(x)
+    """ Primary capsule layer. Linear convolution with reshaping to account for capsules. """
+    preactivation = tf.layers.conv2d(
+        x, capsules * dim, kernel_size, strides=strides, activation=tf.identity, name=name,
+        kernel_initializer=ConcatInitializer('glorot_uniform', axis=3, splits=capsules)
+    )
     _, w, h, _ = preactivation.shape.as_list()
     out = tf.reshape(preactivation, (-1, w * h * capsules, dim))
     return squash(out)
 
 
 def squash(s_j):
+    """ Squashing function as given in the paper """
     squared_norms = tf.reduce_sum(tf.square(s_j), axis=-1, keep_dims=True)
-    scale = squared_norms / (1 + squared_norms) / tf.sqrt(squared_norms + 1e-8)
-    return s_j * scale
+    return s_j * squared_norms / (1 + squared_norms) / tf.sqrt(squared_norms + 1e-8)
 
 
-def digit_caps(incoming, n_capsules, dim, name="DigitCaps", neuron_axis=-1, capsule_axis=-2, routing_iters=3):
+def digit_caps(incoming, n_digit_caps, dim_digit_caps, name="DigitCaps", neuron_axis=-1, capsule_axis=-2, routing_iters=3):
+    """ Digit capsule layer """
     with tf.variable_scope(name):
+        # Get number of capsules and dimensionality of previous layer
         in_shape = incoming.shape.as_list()
-        n_in_capsules = in_shape[capsule_axis]
-        dim_in_capsules = in_shape[neuron_axis]
-        W_ij = tf.get_variable("weights", shape=[n_in_capsules, n_capsules * dim, dim_in_capsules],
+        n_primary_caps = in_shape[capsule_axis]
+        dim_primary_caps = in_shape[neuron_axis]
+        # Initialize all weight matrices
+        W_ij = tf.get_variable("weights", shape=[n_primary_caps, n_digit_caps * dim_digit_caps, dim_primary_caps],
                                initializer=glorot_uniform())
-        b_ij = tf.get_variable("logits", shape=[1, n_in_capsules, n_capsules], initializer=tf.zeros_initializer(),
+        # Initialize routing logits, the leading axis with size 1 is added for convenience.
+        b_ij = tf.get_variable("logits", shape=[1, n_primary_caps, n_digit_caps], initializer=tf.zeros_initializer(),
                                trainable=args.logits_trainable)
+        # Reshape and transpose hacking
         u_i = tf.transpose(incoming, (1, 2, 0))
         u_hat = tf.matmul(W_ij, u_i)
-        u_hat = tf.reshape(tf.transpose(u_hat, (2, 0, 1)), (-1, n_in_capsules, n_capsules, dim))
+        u_hat = tf.reshape(tf.transpose(u_hat, (2, 0, 1)), (-1, n_primary_caps, n_digit_caps, dim_digit_caps))
 
         def capsule_out(b_ij):
+            """ Given the logits b_ij, computes the output of this layer. """
             c_ij = tf.nn.softmax(b_ij, dim=2)
-            s_j = tf.reduce_sum(tf.reshape(c_ij, (-1, n_in_capsules, n_capsules, 1)) * u_hat, axis=1)
+            s_j = tf.reduce_sum(tf.reshape(c_ij, (-1, n_primary_caps, n_digit_caps, 1)) * u_hat, axis=1)
             v_j = squash(s_j)
             return v_j
 
         def routing_iteration(iter, logits):
+            """ Given a set of logits, computes the new logits using the definition of routing from the paper. """
             v_j = capsule_out(logits)
             a_ij = tf.reduce_sum(tf.expand_dims(v_j, axis=1) * u_hat, axis=3)
-            logits = tf.reshape(logits + a_ij, (-1, n_in_capsules, n_capsules))
+            logits = tf.reshape(logits + a_ij, (-1, n_primary_caps, n_digit_caps))
             return [iter + 1, logits]
 
+        # Compute routing
         i = tf.constant(0)
         routing_result = tf.while_loop(
             lambda i, logits: tf.less(i, routing_iters),
             routing_iteration,
             [i, tf.tile(b_ij, tf.stack([tf.shape(incoming)[0], 1, 1]))]
         )
+        # Second element of the result contains our final logits
         v_j = capsule_out(routing_result[1])
 
     return v_j
@@ -135,7 +153,6 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--decoder_lambda", type=float, default=0.001)
     parser.add_argument("--shift", type=float, default=2/28)
-    parser.add_argument("--pclayer", default="conv", choices=['conv', 'lws'])
     parser.add_argument("--logs", default="logs.csv")
     parser.add_argument("--epochs", default=50)
     parser.add_argument("--logits_trainable", default=False, action="store_true", dest="logits_trainable")
