@@ -34,15 +34,9 @@ __global__ void CapsMatMulOpKernel(const float* in, const float* weights,
 
     // Third dim
     const int64 w_d2 = in_dim;
-    // const int64 x_d2 = in_dim;
     const int64 o_d2 = out_dim;
 
-    // Fourth dim
-    // const int64 w_d3 = in_dim;
-    // const int64 x_d3 = 1;         // or zero?
-    // const int64 o_d3 = out_dim;
-
-    // So here we have O[b,i,j,e]
+    // So here we have out[b,ci,cj,e]s
     const int64 b = i / o_d0;
     const int64 ci = (i % o_d0) / o_d1;
     const int64 cj = (i % o_d1) / o_d2;
@@ -73,9 +67,6 @@ void launch(
   const int64 in_dim      = x.dimension(2);
   const int64 out_dim     = weights.dimension(2);
   const int64 out_caps    = weights.dimension(1);
-
-  printf("batch_size %d, in_caps %d, in_dim %d, out_dim %d, out_caps %d\n",
-    batch_size, in_caps, in_dim, out_dim, out_caps);
 
   CudaLaunchConfig config = GetCudaLaunchConfig(out.size(), d);
   CapsMatMulOpKernel<<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
