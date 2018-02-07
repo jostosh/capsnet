@@ -39,49 +39,53 @@ REGISTER_OP("CapsMatMulGrad")
 
 void launch_capsmatmul_grad(
   const GPUDevice& d,
-  typename TTypes<float, 3>::Tensor x,
-  typename TTypes<float, 4>::Tensor weights,
-  typename TTypes<float, 4>::ConstTensor grad);
+  typename TTypes<float, 3>::ConstTensor input,
+  typename TTypes<float, 4>::ConstTensor weights,
+  typename TTypes<float, 4>::ConstTensor grad,
+  typename TTypes<float, 3>::Tensor grad_input,
+  typename TTypes<float, 4>::Tensor grad_weights);
 
 
 template <typename T>
 class CapsMatMulGradOp : public OpKernel
 {
  public:
-  explicit CapsMatMulOp(OpKernelConstruction* ctx) : OpKernel(ctx) { }
+  explicit CapsMatMulGradOp(OpKernelConstruction* ctx) : OpKernel(ctx) { }
 
   void Compute(OpKernelContext* ctx) override
   {
     //--Grab the input tensor - params--//
-    const Tensor& input = ctx->input(0);
-
+    const Tensor& grad = ctx->input(0);
+    const Tensor& input = ctx->input(1);
     //--Grab the input tensor - indices--//
-    const Tensor& weights = ctx->input(1);
+    const Tensor& weights = ctx->input(2);
 
     const TensorShape& input_shape(input.shape());
-    TensorShape output_shape(weights.shape());
-    output_shape.InsertDim(0, input_shape.dim_size(0));
-    output_shape.RemoveDim(4);
+    const TensorShape& weights_shape(weights.shape());
 
     //--Create an output tensor--//
-    Tensor* output = nullptr;
-    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, output_shape, &output));
+    Tensor* grad_input = nullptr;
+    Tensor* grad_weights = nullptr;
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(0, input_shape, &grad_input));
+    OP_REQUIRES_OK(ctx, ctx->allocate_output(1, weights_shape, &grad_weights));
 
     auto input_tensor = input.tensor<float, 3>();
     auto weights_tensor = weights.tensor<float, 4>();
-    auto output_tensor = output->tensor<float, 4>();
-    launch(ctx->eigen_device<GPUDevice>(), input_tensor, weights_tensor,
-      output_tensor);
+    auto grad_tensor = grad.tensor<float, 4>();
+    auto grad_input_tensor = grad_input->tensor<float, 3>();
+    auto grad_weights_tensor = grad_weights->tensor<float, 4>();
+    launch_capsmatmul_grad(
+      ctx->eigen_device<GPUDevice>(), input_tensor, weights_tensor, grad_tensor,
+      grad_input_tensor, grad_weights_tensor
+    );
   }
 };
 
 
-REGISTER_KERNEL_BUILDER(Name("CapsMatMul")
+REGISTER_KERNEL_BUILDER(Name("CapsMatMulGrad")
                       .Device(DEVICE_GPU)
                       .TypeConstraint<float>("T"),
-                  CapsMatMulOp<float>);
+                  CapsMatMulGradOp<float>);
 
-
-#undef REGISTER_CAPSMATMUL
 
 }  // namespace tensorflow
