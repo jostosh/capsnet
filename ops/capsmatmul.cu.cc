@@ -6,7 +6,7 @@
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/util/cuda_kernel_helper.h"
 
-#define BLOCK_SIZE 512
+#define BLOCK_SIZE 1024
 
 namespace tensorflow
 {
@@ -35,16 +35,14 @@ __global__ void CapsMatMulOpKernel(const float* in, const float* weights,
     int64 in_idx = b * x_d0 + ci * x_d1;
     int64 w_idx = ci * w_d0 + cj * w_d1 + e * w_d2;
 
-    if (in_idx + tid % in_dim < x_d0 * (output_size / o_d0))
-      in_shared[tid] = ldg(in + in_idx + tid % in_dim);
-
-    __syncthreads();
+    in_shared[tid] = ldg(in + in_idx + tid % in_dim);
 
     out[i] = static_cast<float>(0);
+    int64 shared_offset = tid - (tid % in_dim);
+    // Here we must guarantee that other threads have finished their work
+    __syncthreads();
     for (int64 v = 0; v < in_dim; ++v)
-    {
-      out[i] += in_shared[tid - (tid % in_dim) + v] * ldg(weights + w_idx++);
-    }
+      out[i] += in_shared[shared_offset++] * ldg(weights + w_idx++);
   }
 }
 
