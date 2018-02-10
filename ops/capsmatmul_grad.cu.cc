@@ -12,22 +12,14 @@ typedef Eigen::GpuDevice GPUDevice;
 
 __global__ void CapsMatMulGradInputKernel(
   const float* grad, const float* weights, float* grad_input,
-  const int64 batch_size,
-  const int64 in_caps,
+  const int64 w_d0,
+  const int64 x_d0, const int64 x_d1,
+  const int64 o_d0, const int64 o_d1,
   const int64 out_caps,
-  const int64 in_dim,
   const int64 out_dim,
+  const int64 in_dim,
   const int64 output_size)
 {
-  // Size first dim
-  const int64 w_d0 = out_caps * out_dim * in_dim;
-  const int64 x_d0 = in_caps * in_dim;
-  const int64 o_d0 = in_caps * out_caps * out_dim;
-
-  // Second dim
-  const int64 x_d1 = in_dim;
-  const int64 o_d1 = out_caps * out_dim;
-
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
     // So here we have out[b,ci,cj,e]s
@@ -54,28 +46,12 @@ __global__ void CapsMatMulGradInputKernel(
 
 __global__ void CapsMatMulGradWeightsKernel(
   const float* grad, const float* input, float* grad_weights,
-  const int64 batch_size,
-  const int64 in_caps,
-  const int64 out_caps,
-  const int64 in_dim,
-  const int64 out_dim,
-  const int64 output_size)
+  const int64 batch_size, const int64 output_size,
+  const int64 w_d0, const int64 w_d1, const int64 w_d2,
+  const int64 x_d0, const int64 x_d1,
+  const int64 o_d0, const int64 o_d1, const int64 o_d2
+)
 {
-
-  // Size first dim
-  const int64 w_d0 = out_caps * out_dim * in_dim;
-  const int64 x_d0 = in_caps * in_dim;
-  const int64 o_d0 = in_caps * out_caps * out_dim;
-
-  // Second dim
-  const int64 w_d1 = out_dim * in_dim;
-  const int64 x_d1 = in_dim;
-  const int64 o_d1 = out_caps * out_dim;
-
-  // Third dim
-  const int64 w_d2 = in_dim;
-  const int64 o_d2 = out_dim;
-
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
     // So here we have out[b,ci,cj,e]s
@@ -113,17 +89,32 @@ void launch_capsmatmul_grad(
   const int64 out_dim     = weights.dimension(2);
   const int64 out_caps    = weights.dimension(1);
 
+  // Size first dim
+  const int64 w_d0 = out_caps * out_dim * in_dim;
+  const int64 x_d0 = in_caps * in_dim;
+  const int64 o_d0 = in_caps * out_caps * out_dim;
+
+  // Second dim
+  const int64 w_d1 = out_dim * in_dim;
+  const int64 x_d1 = in_dim;
+  const int64 o_d1 = out_caps * out_dim;
+
+  // Third dim
+  const int64 w_d2 = in_dim;
+  const int64 o_d2 = out_dim;
+
   CudaLaunchConfig config = GetCudaLaunchConfig(grad_input.size(), d);
   CapsMatMulGradInputKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
-      grad.data(), weights.data(), grad_input.data(), batch_size, in_caps,
-      out_caps, in_dim, out_dim, grad_input.size());
+      grad.data(), weights.data(), grad_input.data(),
+      w_d0, x_d0, x_d1, o_d0, o_d1, out_caps, out_dim, in_dim,
+      grad_input.size());
 
   config = GetCudaLaunchConfig(grad_weights.size(), d);
   CapsMatMulGradWeightsKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
-      grad.data(), input.data(), grad_weights.data(), batch_size, in_caps,
-      out_caps, in_dim, out_dim, grad_weights.size());
+      grad.data(), input.data(), grad_weights.data(), batch_size,
+      grad_weights.size(), w_d0, w_d1, w_d2, x_d0, x_d1, o_d0, o_d1, o_d2);
 }
 
 

@@ -87,7 +87,7 @@ def primary_caps(x, kernel_size, strides, capsules, dim, name="PrimaryCaps"):
 
 def squash(s_j):
     """ Squashing function as given in the paper """
-    squared_norms = tf.reduce_sum(tf.square(s_j), axis=-1, keep_dims=True)
+    squared_norms = tf.reduce_sum(tf.square(s_j), axis=-1, keepdims=True)
     return s_j * squared_norms / (1 + squared_norms) / tf.sqrt(squared_norms + 1e-8)
 
 
@@ -100,8 +100,11 @@ def digit_caps(incoming, n_digit_caps, dim_digit_caps, name="DigitCaps", neuron_
         n_primary_caps = in_shape[capsule_axis]
         dim_primary_caps = in_shape[neuron_axis]
         # Initialize all weight matrices
+        w_shape = [n_primary_caps, n_digit_caps, dim_digit_caps, dim_primary_caps] \
+            if args.custom_op else [n_primary_caps, n_digit_caps * dim_digit_caps, dim_primary_caps]
+
         W_ij = tf.get_variable(
-            "weights", shape=[n_primary_caps, n_digit_caps, dim_digit_caps, dim_primary_caps],
+            "weights", shape=w_shape,
             initializer=tf.keras.initializers.glorot_uniform()
         )
         # Initialize routing logits, the leading axis with size 1 is added for convenience.
@@ -110,16 +113,18 @@ def digit_caps(incoming, n_digit_caps, dim_digit_caps, name="DigitCaps", neuron_
             trainable=args.logits_trainable
         )
         # Reshape and transpose hacking
-        # u_i = tf.transpose(incoming, (1, 2, 0))
-        # u_hat = tf.matmul(W_ij, u_i)
-        # u_hat = tf.reshape(
-        #     tf.transpose(u_hat, (2, 0, 1)), (-1, n_primary_caps, n_digit_caps, dim_digit_caps)
-        # )
-        u_hat = capsmatmul(incoming, W_ij)
+        if args.custom_op:
+            u_hat = capsmatmul(incoming, W_ij)
+        else:
+            u_i = tf.transpose(incoming, (1, 2, 0))
+            u_hat = tf.matmul(W_ij, u_i)
+            u_hat = tf.reshape(
+                tf.transpose(u_hat, (2, 0, 1)), (-1, n_primary_caps, n_digit_caps, dim_digit_caps)
+            )
 
         def capsule_out(b_ij):
             """ Given the logits b_ij, computes the output of this layer. """
-            c_ij = tf.nn.softmax(b_ij, dim=2)
+            c_ij = tf.nn.softmax(b_ij, axis=2)
             s_j = tf.reduce_sum(
                 tf.reshape(c_ij, (-1, n_primary_caps, n_digit_caps, 1)) * u_hat, axis=1
             )
@@ -173,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--logits_trainable", default=False, action="store_true", dest="logits_trainable"
     )
+    parser.add_argument("--custom_op", action="store_true", dest="custom_op")
     parser.add_argument("--no_pbar", action="store_false", dest="pbar")
     parser.add_argument("--datadir", default="MNIST_data")
     parser.set_defaults(pbar=True)
