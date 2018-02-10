@@ -6,6 +6,8 @@
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/util/cuda_kernel_helper.h"
 
+#define BLOCK_SIZE 512
+
 namespace tensorflow
 {
 typedef Eigen::GpuDevice GPUDevice;
@@ -15,14 +17,15 @@ __global__ void CapsMatMulOpKernel(const float* in, const float* weights,
     const int64 o_d0, const int64 o_d1, const int64 o_d2,
     const int64 x_d0, const int64 x_d1,
     const int64 w_d0, const int64 w_d1, const int64 w_d2,
-    const int64 in_dim,
-    const int64 output_size
-)
+    const int64 in_dim, const int64 output_size)
 {
-
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
-    // So here we have out[b,ci,cj,e]s
+    __shared__ float in_shared[BLOCK_SIZE];
+
+    const int64 tid = threadIdx.x;
+
+    // So here we have out[b,ci,cj,e]
     const int64 b = i / o_d0;
     const int64 ci = (i % o_d0) / o_d1;
     const int64 cj = (i % o_d1) / o_d2;
@@ -32,10 +35,15 @@ __global__ void CapsMatMulOpKernel(const float* in, const float* weights,
     int64 in_idx = b * x_d0 + ci * x_d1;
     int64 w_idx = ci * w_d0 + cj * w_d1 + e * w_d2;
 
+    if (in_idx + tid % in_dim < x_d0 * (output_size / o_d0))
+      in_shared[tid] = ldg(in + in_idx + tid % in_dim);
+
+    __syncthreads();
+
     out[i] = static_cast<float>(0);
     for (int64 v = 0; v < in_dim; ++v)
     {
-      out[i] += ldg(in + in_idx++) * ldg(weights + w_idx++);
+      out[i] += in_shared[tid - (tid % in_dim) + v] * ldg(weights + w_idx++);
     }
   }
 }
@@ -69,7 +77,7 @@ void launch(
 
   CudaLaunchConfig config = GetCudaLaunchConfig(out.size(), d);
   CapsMatMulOpKernel
-    <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
+    <<<config.block_count, BLOCK_SIZE, 0, d.stream()>>>(
       x.data(), weights.data(), out.data(),
       o_d0, o_d1, o_d2, x_d0, x_d1, w_d0, w_d1, w_d2,
       in_dim, out.size());
