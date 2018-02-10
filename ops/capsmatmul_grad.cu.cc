@@ -19,34 +19,27 @@ __global__ void CapsMatMulGradInputKernel(
   const int64 out_dim,
   const int64 output_size)
 {
+  // Size first dim
+  const int64 w_d0 = out_caps * out_dim * in_dim;
+  const int64 x_d0 = in_caps * in_dim;
+  const int64 o_d0 = in_caps * out_caps * out_dim;
+
+  // Second dim
+  const int64 x_d1 = in_dim;
+  const int64 o_d1 = out_caps * out_dim;
+
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
-
-    // Size first dim
-    const int64 w_d0 = out_caps * out_dim * in_dim;
-    const int64 x_d0 = in_caps * in_dim;
-    const int64 o_d0 = in_caps * out_caps * out_dim;
-
-    // Second dim
-    const int64 w_d1 = out_dim * in_dim;
-    const int64 x_d1 = in_dim;
-    const int64 o_d1 = out_caps * out_dim;
-
-    // Third dim
-    const int64 w_d2 = in_dim;
-    const int64 o_d2 = out_dim;
-
     // So here we have out[b,ci,cj,e]s
     const int64 b = i / x_d0;
     const int64 ci = (i % x_d0) / x_d1;
     const int64 e = i % x_d1;
-    // const int64 cj = (i % o_d1) / o_d2;
 
     // Then, we can have a look at computing the array indices for in and W
-    const int64 in_idx = b * x_d0 + ci * x_d1;
     int64 w_idx = ci * w_d0 + e;
     int64 grad_idx = b * o_d0 + ci * o_d1;
 
+    grad_input[i] = static_cast<float>(0);
     for (int cj = 0; cj < out_caps; ++cj)
     {
       for (int e_out = 0; e_out < out_dim; ++e_out)
@@ -68,23 +61,23 @@ __global__ void CapsMatMulGradWeightsKernel(
   const int64 out_dim,
   const int64 output_size)
 {
+
+  // Size first dim
+  const int64 w_d0 = out_caps * out_dim * in_dim;
+  const int64 x_d0 = in_caps * in_dim;
+  const int64 o_d0 = in_caps * out_caps * out_dim;
+
+  // Second dim
+  const int64 w_d1 = out_dim * in_dim;
+  const int64 x_d1 = in_dim;
+  const int64 o_d1 = out_caps * out_dim;
+
+  // Third dim
+  const int64 w_d2 = in_dim;
+  const int64 o_d2 = out_dim;
+
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
-
-    // Size first dim
-    const int64 w_d0 = out_caps * out_dim * in_dim;
-    const int64 x_d0 = in_caps * in_dim;
-    const int64 o_d0 = in_caps * out_caps * out_dim;
-
-    // Second dim
-    const int64 w_d1 = out_dim * in_dim;
-    const int64 x_d1 = in_dim;
-    const int64 o_d1 = out_caps * out_dim;
-
-    // Third dim
-    const int64 w_d2 = in_dim;
-    const int64 o_d2 = out_dim;
-
     // So here we have out[b,ci,cj,e]s
     const int64 ci = i / w_d0;
     const int64 cj = (i % w_d0) / w_d1;
@@ -123,15 +116,14 @@ void launch_capsmatmul_grad(
   CudaLaunchConfig config = GetCudaLaunchConfig(grad_input.size(), d);
   CapsMatMulGradInputKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
-      grad.data(), weights.data(), grad_input.data(), batch_size, in_caps, out_caps,
-      in_dim, out_dim, grad_input.size());
+      grad.data(), weights.data(), grad_input.data(), batch_size, in_caps,
+      out_caps, in_dim, out_dim, grad_input.size());
 
   config = GetCudaLaunchConfig(grad_weights.size(), d);
   CapsMatMulGradWeightsKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
-      grad.data(), input.data(), grad_weights.data(), batch_size, in_caps, out_caps,
-      in_dim, out_dim, grad_weights.size());
-
+      grad.data(), input.data(), grad_weights.data(), batch_size, in_caps,
+      out_caps, in_dim, out_dim, grad_weights.size());
 }
 
 
