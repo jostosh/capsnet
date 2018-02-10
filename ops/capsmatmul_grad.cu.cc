@@ -100,13 +100,13 @@ __global__ void CapsMatMulGradWeightsKernel(
     {
       grad_weights[i] += ldg(grad + grad_idx) * ldg(input + input_idx);
       input_idx += x_d0;
-      grad_idx  += w_d0;
+      grad_idx  += o_d0;
     }
   }
 }
 
 
-void lauch_capsmatmul_grad(
+void launch_capsmatmul_grad(
   const GPUDevice& d,
   typename TTypes<float, 3>::ConstTensor input,
   typename TTypes<float, 4>::ConstTensor weights,

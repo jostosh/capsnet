@@ -30,7 +30,7 @@ REGISTER_OP("CapsMatMulGrad")
       TF_RETURN_IF_ERROR(ctx->WithRank(ctx->input(2), 4, &weights_shape));
 
       ShapeHandle grad_in_shape(in_shape);
-      ShapeHandle grad_weights_shape(weight_shape);
+      ShapeHandle grad_weights_shape(weights_shape);
       ctx->set_output(0, grad_in_shape);
       ctx->set_output(1, grad_weights_shape);
 
