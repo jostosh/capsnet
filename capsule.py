@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 
-from ops.capsmatmul import capsmatmul
+from ops.capsuleprediction import capsule_prediction
 import tqdm
 import argparse
 
@@ -112,10 +112,11 @@ def digit_caps(incoming, n_digit_caps, dim_digit_caps, name="DigitCaps", neuron_
             "logits", shape=[1, n_primary_caps, n_digit_caps], initializer=tf.zeros_initializer(),
             trainable=args.logits_trainable
         )
-        # Reshape and transpose hacking
         if args.custom_op:
-            u_hat = capsmatmul(incoming, W_ij)
+            # Custom op
+            u_hat = capsule_prediction(incoming, W_ij)
         else:
+            # Reshape and transpose hacking
             u_i = tf.transpose(incoming, (1, 2, 0))
             u_hat = tf.matmul(W_ij, u_i)
             u_hat = tf.reshape(

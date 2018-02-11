@@ -10,7 +10,7 @@ namespace tensorflow
 {
 typedef Eigen::GpuDevice GPUDevice;
 
-__global__ void CapsMatMulGradInputKernel(
+__global__ void capsulePredictionInputGradKernel(
   const float* grad, const float* weights, float* grad_input,
   const int64 w_d0,
   const int64 x_d0, const int64 x_d1,
@@ -40,8 +40,8 @@ __global__ void CapsMatMulGradInputKernel(
       {
         // Next element of grad can be found by incrementing grad_idx
         result  += ldg(grad + grad_idx++) * ldg(weights + w_idx);
-        // Next element of weights can be found by going to the next output capsule
-        // element, meaning that we add in_dim to w_idx
+        // Next element of weights can be found by going to the next output
+        // capsule element, meaning that we add in_dim to w_idx
         w_idx   += in_dim;
       }
     }
@@ -51,7 +51,7 @@ __global__ void CapsMatMulGradInputKernel(
 }
 
 
-__global__ void CapsMatMulGradWeightsKernel(
+__global__ void capsulePredictionWeightsGradKernel(
   const float* grad, const float* input, float* grad_weights,
   const int64 batch_size, const int64 output_size,
   const int64 w_d0, const int64 w_d1, const int64 w_d2,
@@ -67,7 +67,8 @@ __global__ void CapsMatMulGradWeightsKernel(
     const int64 e_out = (i % w_d1) / w_d2;
     const int64 e_in  = i % w_d2;
 
-    // Then, we can have a look at computing the array indices for in_grad and out_grad
+    // Then, we can have a look at computing the array indices for
+    // in and grad
     int64 input_idx   = ci * x_d1 + e_in;               // (b == 0)
     int64 grad_idx    = ci * o_d1 + cj * o_d2 + e_out;  // (b == 0)
 
@@ -86,7 +87,7 @@ __global__ void CapsMatMulGradWeightsKernel(
 }
 
 
-void launch_capsmatmul_grad(
+void launchCapsulePredictionGrad(
   const GPUDevice& d,
   typename TTypes<float, 3>::ConstTensor input,
   typename TTypes<float, 4>::ConstTensor weights,
@@ -116,7 +117,7 @@ void launch_capsmatmul_grad(
 
   // Launch input gradient kernel
   CudaLaunchConfig config = GetCudaLaunchConfig(grad_input.size(), d);
-  CapsMatMulGradInputKernel
+  capsulePredictionInputGradKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
       grad.data(), weights.data(), grad_input.data(),
       w_d0, x_d0, x_d1, o_d0, o_d1, out_caps, out_dim, in_dim,
@@ -124,7 +125,7 @@ void launch_capsmatmul_grad(
 
   // Launch weight gradient kernel
   config = GetCudaLaunchConfig(grad_weights.size(), d);
-  CapsMatMulGradWeightsKernel
+  capsulePredictionWeightsGradKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
       grad.data(), input.data(), grad_weights.data(), batch_size,
       grad_weights.size(), w_d0, w_d1, w_d2, x_d0, x_d1, o_d0, o_d1, o_d2);

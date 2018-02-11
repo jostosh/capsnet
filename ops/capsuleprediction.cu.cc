@@ -10,7 +10,7 @@ namespace tensorflow
 {
 typedef Eigen::GpuDevice GPUDevice;
 
-__global__ void CapsMatMulOpKernel(const float* in, const float* weights,
+__global__ void capsulePredictionKernel(const float* in, const float* weights,
     float* out,
     const int64 o_d0, const int64 o_d1, const int64 o_d2,
     const int64 x_d0, const int64 x_d1,
@@ -23,11 +23,11 @@ __global__ void CapsMatMulOpKernel(const float* in, const float* weights,
     const int64 b     = i / o_d0;
     const int64 ci    = (i % o_d0) / o_d1;
     const int64 cj    = (i % o_d1) / o_d2;
-    const int64 e_in  = i % o_d2;
+    const int64 e_out = i % o_d2;
 
     // Then, we can have a look at computing the array indices for in and W
     int64 in_idx = b * x_d0 + ci * x_d1;
-    int64 w_idx = ci * w_d0 + cj * w_d1 + e_in * w_d2;
+    int64 w_idx = ci * w_d0 + cj * w_d1 + e_out * w_d2;
 
     // Initialize result
     float result = 0.0;
@@ -70,7 +70,7 @@ void launch(
 
   // Launch CUDA kernel for forward operation
   CudaLaunchConfig config = GetCudaLaunchConfig(out.size(), d);
-  CapsMatMulOpKernel
+  capsulePredictionKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
       x.data(), weights.data(), out.data(),
       o_d0, o_d1, o_d2, x_d0, x_d1, w_d0, w_d1, w_d2,
@@ -78,5 +78,5 @@ void launch(
 }
 
 
-}  // namespa
+}  // namespace TensorFlow
 #endif

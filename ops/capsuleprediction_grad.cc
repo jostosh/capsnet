@@ -12,7 +12,7 @@ using shape_inference::ShapeHandle;
 using shape_inference::InferenceContext;
 using shape_inference::DimensionHandle;
 
-REGISTER_OP("CapsMatMulGrad")
+REGISTER_OP("CapsulePredictionGrad")
     .Input("grad: T")
     .Input("input: T")
     .Input("weights: T")
@@ -36,7 +36,7 @@ REGISTER_OP("CapsMatMulGrad")
     });
 
 // Forward declaration
-void launch_capsmatmul_grad(
+void launchCapsulePredictionGrad(
   const GPUDevice& d,
   typename TTypes<float, 3>::ConstTensor input,
   typename TTypes<float, 4>::ConstTensor weights,
@@ -44,11 +44,10 @@ void launch_capsmatmul_grad(
   typename TTypes<float, 3>::Tensor grad_input,
   typename TTypes<float, 4>::Tensor grad_weights);
 
-template <typename T>
-class CapsMatMulGradOp : public OpKernel
+class CapsulePredictionGradOp : public OpKernel
 {
  public:
-  explicit CapsMatMulGradOp(OpKernelConstruction* ctx) : OpKernel(ctx) { }
+  explicit CapsulePredictionGradOp(OpKernelConstruction* ctx) : OpKernel(ctx) { }
 
   void Compute(OpKernelContext* ctx) override
   {
@@ -70,9 +69,10 @@ class CapsMatMulGradOp : public OpKernel
     // Get the Eigen tensors and pass them on to the launch function
     auto input_tensor         = input.tensor<float, 3>();
     auto weights_tensor       = weights.tensor<float, 4>();
-    auto grad_tensor          = grad.tensor>tensor<float, 3>();
+    auto grad_tensor          = grad.tensor<float, 4>();
+    auto grad_input_tensor    = grad_input->tensor<float, 3>();
     auto grad_weights_tensor  = grad_weights->tensor<float, 4>();
-    launch_capsmatmul_grad(
+    launchCapsulePredictionGrad(
       ctx->eigen_device<GPUDevice>(), input_tensor, weights_tensor, grad_tensor,
       grad_input_tensor, grad_weights_tensor
     );
@@ -80,10 +80,10 @@ class CapsMatMulGradOp : public OpKernel
 };
 
 
-REGISTER_KERNEL_BUILDER(Name("CapsMatMulGrad")
+REGISTER_KERNEL_BUILDER(Name("CapsulePredictionGrad")
                       .Device(DEVICE_GPU)
                       .TypeConstraint<float>("T"),
-                  CapsMatMulGradOp<float>);
+                  CapsulePredictionGradOp)
 
 
 }  // namespace tensorflow

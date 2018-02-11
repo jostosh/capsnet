@@ -12,7 +12,7 @@ using shape_inference::ShapeHandle;
 using shape_inference::InferenceContext;
 using shape_inference::DimensionHandle;
 
-REGISTER_OP("CapsMatMul")
+REGISTER_OP("CapsulePrediction")
 .Input("input: T")
 .Input("weights: T")
 .Output("output: T")
@@ -43,10 +43,10 @@ void launch(
   typename TTypes<float, 4>::ConstTensor weights,
   typename TTypes<float, 4>::Tensor out);
 
-class CapsMatMulOp : public OpKernel
+class CapsulePredictionOp : public OpKernel
 {
  public:
-  explicit CapsMatMulOp(OpKernelConstruction* ctx) : OpKernel(ctx) { }
+  explicit CapsulePredictionOp(OpKernelConstruction* ctx) : OpKernel(ctx) { }
 
   void Compute(OpKernelContext* ctx) override
   {
@@ -75,9 +75,9 @@ class CapsMatMulOp : public OpKernel
 
 
 REGISTER_KERNEL_BUILDER(
-        Name("CapsMatMul")
+        Name("CapsulePrediction")
         .Device(DEVICE_GPU)
         .TypeConstraint<float>("T"),
-        CapsMatMulOp)
+        CapsulePredictionOp)
 
 }  // namespace tensorflow
