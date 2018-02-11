@@ -22,24 +22,31 @@ __global__ void CapsMatMulGradInputKernel(
 {
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
-    // So here we have out[b,ci,cj,e]s
-    const int64 b = i / x_d0;
-    const int64 ci = (i % x_d0) / x_d1;
-    const int64 e = i % x_d1;
+    // So here we have in_grad[b,ci,e]
+    const int64 b     = i / x_d0;
+    const int64 ci    = (i % x_d0) / x_d1;
+    const int64 e_in  = i % x_d1;
 
     // Then, we can have a look at computing the array indices for in and W
-    int64 w_idx = ci * w_d0 + e;
-    int64 grad_idx = b * o_d0 + ci * o_d1;
+    int64 w_idx       = ci * w_d0 + e_in;
+    int64 grad_idx    = b * o_d0 + ci * o_d1;
 
-    grad_input[i] = static_cast<float>(0);
+    // Initialize result
+    float result      = 0.0;
+    // Iterate over cj and e_out, we already have the other indices
     for (int cj = 0; cj < out_caps; ++cj)
     {
       for (int e_out = 0; e_out < out_dim; ++e_out)
       {
-        grad_input[i] += ldg(grad + grad_idx++) * ldg(weights + w_idx);
-        w_idx += in_dim;
+        // Next element of grad can be found by incrementing grad_idx
+        result  += ldg(grad + grad_idx++) * ldg(weights + w_idx);
+        // Next element of weights can be found by going to the next output capsule
+        // element, meaning that we add in_dim to w_idx
+        w_idx   += in_dim;
       }
     }
+    // Write the result
+    grad_input[i] = result;
   }
 }
 
@@ -54,23 +61,27 @@ __global__ void CapsMatMulGradWeightsKernel(
 {
   CUDA_1D_KERNEL_LOOP(i, output_size)
   {
-    // So here we have out[b,ci,cj,e]s
-    const int64 ci = i / w_d0;
-    const int64 cj = (i % w_d0) / w_d1;
+    // So here we have w[ci,cj,e_out,e_in]
+    const int64 ci    = i / w_d0;
+    const int64 cj    = (i % w_d0) / w_d1;
     const int64 e_out = (i % w_d1) / w_d2;
-    const int64 e_in = i % w_d2;
+    const int64 e_in  = i % w_d2;
 
-    // Then, we can have a look at computing the array indices for in and W
-    int64 input_idx = ci * x_d1 + e_in;
-    int64 grad_idx = ci * o_d1 + cj * o_d2 + e_out;
+    // Then, we can have a look at computing the array indices for in_grad and out_grad
+    int64 input_idx   = ci * x_d1 + e_in;               // (b == 0)
+    int64 grad_idx    = ci * o_d1 + cj * o_d2 + e_out;  // (b == 0)
 
-    grad_weights[i] = static_cast<float>(0);
+    // Initilize result
+    float result      = 0.0;
+    // We only iterate over b, since we have the other indices already
     for (int64 b = 0; b < batch_size; b++)
     {
-      grad_weights[i] += ldg(grad + grad_idx) * ldg(input + input_idx);
+      result += ldg(grad + grad_idx) * ldg(input + input_idx);
+      // Next elements can be found by jumping to the next batch
       input_idx += x_d0;
       grad_idx  += o_d0;
     }
+    grad_weights[i] = result;
   }
 }
 
@@ -103,6 +114,7 @@ void launch_capsmatmul_grad(
   const int64 w_d2 = in_dim;
   const int64 o_d2 = out_dim;
 
+  // Launch input gradient kernel
   CudaLaunchConfig config = GetCudaLaunchConfig(grad_input.size(), d);
   CapsMatMulGradInputKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
@@ -110,6 +122,7 @@ void launch_capsmatmul_grad(
       w_d0, x_d0, x_d1, o_d0, o_d1, out_caps, out_dim, in_dim,
       grad_input.size());
 
+  // Launch weight gradient kernel
   config = GetCudaLaunchConfig(grad_weights.size(), d);
   CapsMatMulGradWeightsKernel
     <<<config.block_count, config.thread_per_block, 0, d.stream()>>>(
@@ -118,5 +131,5 @@ void launch_capsmatmul_grad(
 }
 
 
-}  // namespa
+}  // namespace TensorFlow
 #endif

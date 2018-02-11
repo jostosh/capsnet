@@ -80,7 +80,6 @@ class CapsMatMulOpTest(tf.test.TestCase):
             x_ph = tf.placeholder(tf.float32, x.shape)
             w_ph = tf.placeholder(tf.float32, weights.shape)
             fd = {x_ph: x, w_ph: weights}
-
             caps_out = capsmatmul(x_ph, w_ph)
             grad_x = tf.test.compute_gradient(x_ph, x.shape, caps_out, out_shape,
                                               extra_feed_dict=fd)
