@@ -37,7 +37,7 @@ REGISTER_OP("CapsulePrediction")
     return Status::OK();
 });
 
-void launch(
+void launchCapsulePrediction(
   const GPUDevice& d,
   typename TTypes<float, 3>::ConstTensor x,
   typename TTypes<float, 4>::ConstTensor weights,
@@ -68,7 +68,7 @@ class CapsulePredictionOp : public OpKernel
     auto input_tensor   = input.tensor<float, 3>();
     auto weights_tensor = weights.tensor<float, 4>();
     auto output_tensor  = output->tensor<float, 4>();
-    launch(ctx->eigen_device<GPUDevice>(), input_tensor, weights_tensor,
+    launchCapsulePrediction(ctx->eigen_device<GPUDevice>(), input_tensor, weights_tensor,
       output_tensor);
   }
 };

@@ -41,7 +41,7 @@ __global__ void capsulePredictionKernel(const float* in, const float* weights,
 }
 
 
-void launch(
+void launchCapsulePrediction(
   const GPUDevice& d,
   typename TTypes<float, 3>::ConstTensor x,
   typename TTypes<float, 4>::ConstTensor weights,
